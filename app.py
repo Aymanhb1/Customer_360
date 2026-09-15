@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import joblib
+import json
+
 from pathlib import Path
 from datetime import datetime
 from sklearn.utils.validation import check_is_fitted
@@ -29,24 +31,65 @@ st.markdown(
 
 
 # ============================================================
-# MODEL
+# FILE PATHS
 # ============================================================
 
 MODEL_PATH = Path("repeat_purchase_model_v2.pkl")
+
+METADATA_PATH = Path("model_metadata.json")
+
 LOG_PATH = Path("prediction_logs.csv")
 
+
+# ============================================================
+# LOAD MODEL METADATA
+# ============================================================
+
+@st.cache_data
+def load_metadata():
+
+    if not METADATA_PATH.exists():
+
+        raise FileNotFoundError(
+            f"Model metadata file not found: {METADATA_PATH}"
+        )
+
+    with open(METADATA_PATH, "r") as file:
+
+        metadata = json.load(file)
+
+    return metadata
+
+
+try:
+
+    metadata = load_metadata()
+
+except Exception as e:
+
+    st.error("❌ Failed to load model metadata.")
+
+    st.exception(e)
+
+    st.stop()
+
+
+# ============================================================
+# LOAD MODEL
+# ============================================================
 
 @st.cache_resource
 def load_model():
 
     if not MODEL_PATH.exists():
+
         raise FileNotFoundError(
             f"Model file not found: {MODEL_PATH}"
         )
 
     model = joblib.load(MODEL_PATH)
 
-    # Verify that the model is actually fitted
+    # Verify that the model is fitted
     check_is_fitted(model)
 
     return model
@@ -59,12 +102,14 @@ try:
 except Exception as e:
 
     st.error("❌ Failed to load the trained model.")
+
     st.exception(e)
+
     st.stop()
 
 
 # ============================================================
-# SIDEBAR INPUTS
+# SIDEBAR
 # ============================================================
 
 st.sidebar.header("Customer Parameter Inputs")
@@ -97,7 +142,7 @@ total_items = st.sidebar.number_input(
     min_value=1.0,
     value=250.0,
     step=1.0,
-    help="Total number of items purchased by the customer."
+    help="Total number of items purchased."
 )
 
 
@@ -142,8 +187,35 @@ lifetime_days = st.sidebar.slider(
     min_value=0,
     max_value=730,
     value=180,
-    help="Number of days between the customer's first and last purchase."
+    help="Number of days between first and last purchase."
 )
+
+
+# ============================================================
+# MODEL INFORMATION
+# ============================================================
+
+with st.sidebar.expander("🤖 Model Information"):
+
+    st.write(
+        f"**Model:** {metadata.get('model_name', 'N/A')}"
+    )
+
+    st.write(
+        f"**Version:** {metadata.get('model_version', 'N/A')}"
+    )
+
+    st.write(
+        f"**Algorithm:** {metadata.get('algorithm', 'N/A')}"
+    )
+
+    st.write(
+        f"**Framework:** {metadata.get('framework', 'N/A')}"
+    )
+
+    st.write(
+        f"**Target:** {metadata.get('target', 'N/A')}"
+    )
 
 
 # ============================================================
@@ -181,23 +253,23 @@ if st.button("🔮 Predict Repeat Purchase", type="primary"):
 
         "return_count": [return_count],
 
-        "lifetime_days": [lifetime_days],
+        "lifetime_days": [lifetime_days]
 
     })
 
 
     try:
 
-        # ----------------------------------------------------
-        # Prediction
-        # ----------------------------------------------------
+        # ====================================================
+        # PREDICTION
+        # ====================================================
 
         prediction = model.predict(input_data)[0]
 
 
-        # ----------------------------------------------------
-        # Probability
-        # ----------------------------------------------------
+        # ====================================================
+        # PROBABILITY
+        # ====================================================
 
         probability = None
 
@@ -208,9 +280,9 @@ if st.button("🔮 Predict Repeat Purchase", type="primary"):
             )[0][1]
 
 
-        # ----------------------------------------------------
-        # Display result
-        # ----------------------------------------------------
+        # ====================================================
+        # RESULT
+        # ====================================================
 
         st.divider()
 
@@ -227,9 +299,9 @@ if st.button("🔮 Predict Repeat Purchase", type="primary"):
             )
 
 
-        # ----------------------------------------------------
-        # Metrics
-        # ----------------------------------------------------
+        # ====================================================
+        # METRICS
+        # ====================================================
 
         if probability is not None:
 
@@ -321,12 +393,28 @@ if st.button("🔮 Predict Repeat Purchase", type="primary"):
 
             log_data["repeat_purchase_probability"] = None
 
+
+        # Add model version to the log
+        log_data["model_version"] = metadata.get(
+            "model_version",
+            "unknown"
+        )
+
+
+        # Add model name
+        log_data["model_name"] = metadata.get(
+            "model_name",
+            "unknown"
+        )
+
+
+        # Add timestamp
         log_data["timestamp"] = datetime.now().isoformat()
 
 
-        # ----------------------------------------------------
-        # Save prediction
-        # ----------------------------------------------------
+        # ====================================================
+        # SAVE LOG
+        # ====================================================
 
         if LOG_PATH.exists():
 
@@ -350,6 +438,14 @@ if st.button("🔮 Predict Repeat Purchase", type="primary"):
 
         st.success(
             "✅ Prediction successfully logged."
+        )
+
+
+        # Show which model generated the prediction
+
+        st.caption(
+            f"Prediction generated by model "
+            f"**{metadata.get('model_version', 'N/A')}**"
         )
 
 
