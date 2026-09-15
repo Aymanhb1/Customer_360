@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import joblib
 from pathlib import Path
+from datetime import datetime
 from sklearn.utils.validation import check_is_fitted
 
 
@@ -28,10 +29,11 @@ st.markdown(
 
 
 # ============================================================
-# LOAD TRAINED MODEL
+# MODEL
 # ============================================================
 
 MODEL_PATH = Path("repeat_purchase_model_v2.pkl")
+LOG_PATH = Path("prediction_logs.csv")
 
 
 @st.cache_resource
@@ -44,23 +46,25 @@ def load_model():
 
     model = joblib.load(MODEL_PATH)
 
-    # Verify that the loaded model is actually fitted
+    # Verify that the model is actually fitted
     check_is_fitted(model)
 
     return model
 
 
 try:
+
     model = load_model()
 
 except Exception as e:
+
     st.error("❌ Failed to load the trained model.")
     st.exception(e)
     st.stop()
 
 
 # ============================================================
-# SIDEBAR
+# SIDEBAR INPUTS
 # ============================================================
 
 st.sidebar.header("Customer Parameter Inputs")
@@ -93,7 +97,7 @@ total_items = st.sidebar.number_input(
     min_value=1.0,
     value=250.0,
     step=1.0,
-    help="Total number of items purchased."
+    help="Total number of items purchased by the customer."
 )
 
 
@@ -143,7 +147,7 @@ lifetime_days = st.sidebar.slider(
 
 
 # ============================================================
-# MODEL PREDICTION
+# PREDICTION
 # ============================================================
 
 st.subheader("Model Prediction")
@@ -155,33 +159,58 @@ st.write(
 
 if st.button("🔮 Predict Repeat Purchase", type="primary"):
 
-    # These columns MUST match the training features
-    input_data = pd.DataFrame(
-        {
-            "recency_days": [recency_days],
-            "frequency": [frequency],
-            "total_items": [total_items],
-            "total_revenue": [total_revenue],
-            "average_transaction_value": [average_transaction_value],
-            "unique_products": [unique_products],
-            "return_count": [return_count],
-            "lifetime_days": [lifetime_days],
-        }
-    )
+    # --------------------------------------------------------
+    # Create input dataframe
+    # --------------------------------------------------------
+
+    input_data = pd.DataFrame({
+
+        "recency_days": [recency_days],
+
+        "frequency": [frequency],
+
+        "total_items": [total_items],
+
+        "total_revenue": [total_revenue],
+
+        "average_transaction_value": [
+            average_transaction_value
+        ],
+
+        "unique_products": [unique_products],
+
+        "return_count": [return_count],
+
+        "lifetime_days": [lifetime_days],
+
+    })
+
 
     try:
 
+        # ----------------------------------------------------
+        # Prediction
+        # ----------------------------------------------------
+
         prediction = model.predict(input_data)[0]
+
+
+        # ----------------------------------------------------
+        # Probability
+        # ----------------------------------------------------
 
         probability = None
 
         if hasattr(model, "predict_proba"):
-            probability = model.predict_proba(input_data)[0][1]
+
+            probability = model.predict_proba(
+                input_data
+            )[0][1]
 
 
-        # ====================================================
-        # RESULT
-        # ====================================================
+        # ----------------------------------------------------
+        # Display result
+        # ----------------------------------------------------
 
         st.divider()
 
@@ -198,9 +227,9 @@ if st.button("🔮 Predict Repeat Purchase", type="primary"):
             )
 
 
-        # ====================================================
-        # PROBABILITY
-        # ====================================================
+        # ----------------------------------------------------
+        # Metrics
+        # ----------------------------------------------------
 
         if probability is not None:
 
@@ -226,7 +255,40 @@ if st.button("🔮 Predict Repeat Purchase", type="primary"):
 
 
         # ====================================================
-        # INPUT SUMMARY
+        # BUSINESS RECOMMENDATION
+        # ====================================================
+
+        st.subheader("💡 Business Recommendation")
+
+        if probability is not None:
+
+            if probability >= 0.75:
+
+                st.success(
+                    "High repeat-purchase potential. "
+                    "Consider loyalty rewards, cross-selling, "
+                    "or personalized recommendations."
+                )
+
+            elif probability >= 0.50:
+
+                st.info(
+                    "Moderate repeat-purchase potential. "
+                    "Consider personalized offers or "
+                    "targeted marketing campaigns."
+                )
+
+            else:
+
+                st.warning(
+                    "Low repeat-purchase potential. "
+                    "Consider a re-engagement campaign, "
+                    "discount, or personalized promotion."
+                )
+
+
+        # ====================================================
+        # CUSTOMER INFORMATION
         # ====================================================
 
         st.subheader("Customer Information")
@@ -241,7 +303,88 @@ if st.button("🔮 Predict Repeat Purchase", type="primary"):
         )
 
 
+        # ====================================================
+        # PREDICTION LOGGING
+        # ====================================================
+
+        log_data = input_data.copy()
+
+        log_data["prediction"] = int(prediction)
+
+        if probability is not None:
+
+            log_data["repeat_purchase_probability"] = (
+                float(probability)
+            )
+
+        else:
+
+            log_data["repeat_purchase_probability"] = None
+
+        log_data["timestamp"] = datetime.now().isoformat()
+
+
+        # ----------------------------------------------------
+        # Save prediction
+        # ----------------------------------------------------
+
+        if LOG_PATH.exists():
+
+            existing_logs = pd.read_csv(LOG_PATH)
+
+            updated_logs = pd.concat(
+                [existing_logs, log_data],
+                ignore_index=True
+            )
+
+        else:
+
+            updated_logs = log_data
+
+
+        updated_logs.to_csv(
+            LOG_PATH,
+            index=False
+        )
+
+
+        st.success(
+            "✅ Prediction successfully logged."
+        )
+
+
     except Exception as e:
 
         st.error("❌ Prediction failed.")
+
         st.exception(e)
+
+
+# ============================================================
+# PREDICTION HISTORY
+# ============================================================
+
+st.divider()
+
+st.subheader("📊 Prediction History")
+
+
+if LOG_PATH.exists():
+
+    logs = pd.read_csv(LOG_PATH)
+
+    st.write(
+        f"Total predictions logged: **{len(logs)}**"
+    )
+
+    st.dataframe(
+        logs.tail(20),
+        use_container_width=True
+    )
+
+else:
+
+    st.info(
+        "No predictions have been logged yet. "
+        "Make a prediction to create the prediction log."
+    )
