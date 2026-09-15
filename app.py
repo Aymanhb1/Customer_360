@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import pickle  # Switched to pickle for .pkl file
+import pickle
 
 # Page Configuration
 st.set_page_config(
