@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import joblib
+import pickle  # Switched to pickle for .pkl file
 
 # Page Configuration
 st.set_page_config(
@@ -12,11 +12,11 @@ st.set_page_config(
 st.title("🛍️ Customer Insights & Revenue Predictor")
 st.markdown("Interactive Machine Learning dashboard for the Online Retail dataset.")
 
-# Load Artifacts
+# Load Trained Artifact
 @st.cache_resource
 def load_artifacts():
-    # Load model directly using relative path
-    model = joblib.load("retail_model.joblib")
+    with open("best_model_pipeline.pkl", "rb") as f:
+        model = pickle.load(f)
     return model
 
 model = load_artifacts()
@@ -27,11 +27,10 @@ total_orders = st.sidebar.number_input("Total Orders", min_value=1, max_value=50
 total_items = st.sidebar.number_input("Total Items Purchased", min_value=1, max_value=10000, value=250)
 lifetime_days = st.sidebar.slider("Customer Lifetime (Days)", min_value=0, max_value=730, value=180)
 
-# Main Section - Prediction Workflow
+# Main Section - Prediction
 st.subheader("Model Prediction")
 
 if st.button("Predict Customer Value"):
-    # Match feature names and order expected by your model
     input_data = pd.DataFrame(
         [[total_orders, total_items, lifetime_days]], 
         columns=["total_orders", "total_items", "lifetime_days"]
