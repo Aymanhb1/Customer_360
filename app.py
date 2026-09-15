@@ -30,7 +30,7 @@ st.markdown(
 # LOAD TRAINED MODEL
 # ============================================================
 
-MODEL_PATH = Path("models/v1/best_model_pipeline.pkl")
+MODEL_PATH = Path("best_model_pipeline.pkl")
 
 
 @st.cache_resource
