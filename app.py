@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import pandas as pd
 import joblib
@@ -232,4 +231,3 @@ if st.button("🔮 Predict Repeat Purchase", type="primary"):
 
         st.error("❌ Prediction failed.")
         st.exception(e)
-```
