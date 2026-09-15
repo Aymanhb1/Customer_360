@@ -1,0 +1,20 @@
+{
+    "model_name": "Repeat Purchase Prediction Model",
+    "model_version": "v2.0",
+    "algorithm": "Gradient Boosting Classifier",
+    "framework": "scikit-learn",
+    "scikit_learn_version": "1.6.1",
+    "features": [
+        "recency_days",
+        "frequency",
+        "total_items",
+        "total_revenue",
+        "average_transaction_value",
+        "unique_products",
+        "return_count",
+        "lifetime_days"
+    ],
+    "target": "repeat_purchase",
+    "artifact": "repeat_purchase_model_v2.pkl",
+    "training_random_state": 42
+}
