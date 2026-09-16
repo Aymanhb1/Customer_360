@@ -17,10 +17,16 @@ DATABASE_PATH = Path("retail_customer360.db")
 
 def load_prediction_logs():
 
+    # Database may not exist yet in a fresh deployment
     if not DATABASE_PATH.exists():
-        raise FileNotFoundError(
-            f"Database not found: {DATABASE_PATH}"
+
+        print("No prediction database found yet.")
+        print(
+            "Run the Streamlit application and make "
+            "predictions first."
         )
+
+        return pd.DataFrame()
 
     conn = sqlite3.connect(DATABASE_PATH)
 
@@ -54,9 +60,18 @@ def generate_monitoring_report():
     print("CUSTOMER 360 — MODEL MONITORING")
     print("=" * 60)
 
+    # --------------------------------------------------------
+    # No monitoring data
+    # --------------------------------------------------------
+
     if df.empty:
 
         print("\nNo predictions have been logged yet.")
+        print(
+            "Make predictions through the Streamlit app "
+            "to generate monitoring data."
+        )
+
         return
 
     # --------------------------------------------------------
@@ -97,13 +112,18 @@ def generate_monitoring_report():
     # Model information
     # --------------------------------------------------------
 
-    model_versions = df["model_version"].unique()
+    model_versions = df["model_version"].dropna().unique()
+
+    model_names = df["model_name"].dropna().unique()
 
     # --------------------------------------------------------
     # Print report
     # --------------------------------------------------------
 
-    print(f"\nTotal predictions: {total_predictions}")
+    print(
+        f"\nTotal predictions: "
+        f"{total_predictions}"
+    )
 
     print(
         f"Predicted repeat purchases: "
@@ -136,11 +156,45 @@ def generate_monitoring_report():
     )
 
     print(
-        f"\nModel versions observed: "
+        f"\nModel names observed: "
+        f"{list(model_names)}"
+    )
+
+    print(
+        f"Model versions observed: "
         f"{list(model_versions)}"
     )
 
+    # --------------------------------------------------------
+    # Latest predictions
+    # --------------------------------------------------------
+
+    print("\nLatest predictions:")
+
+    latest = df.tail(5)
+
+    columns_to_show = [
+        "prediction",
+        "repeat_purchase_probability",
+        "model_version",
+        "timestamp"
+    ]
+
+    available_columns = [
+        column
+        for column in columns_to_show
+        if column in latest.columns
+    ]
+
+    print(
+        latest[available_columns].to_string(
+            index=False
+        )
+    )
+
     print("\n" + "=" * 60)
+    print("MONITORING REPORT COMPLETE")
+    print("=" * 60)
 
 
 # ============================================================
