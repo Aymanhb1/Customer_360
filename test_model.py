@@ -11,10 +11,9 @@ from sklearn.utils.validation import check_is_fitted
 # PATHS
 # ============================================================
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
+ROOT_DIR = Path(__file__).resolve().parent
 
 MODEL_PATH = ROOT_DIR / "repeat_purchase_model_v2.pkl"
-
 METADATA_PATH = ROOT_DIR / "model_metadata.json"
 
 
@@ -24,7 +23,6 @@ METADATA_PATH = ROOT_DIR / "model_metadata.json"
 
 with open(METADATA_PATH, "r") as file:
     metadata = json.load(file)
-
 
 EXPECTED_FEATURES = metadata["features"]
 
@@ -93,19 +91,12 @@ def test_model_prediction():
     test_data = pd.DataFrame({
 
         "recency_days": [30.0],
-
         "frequency": [5.0],
-
         "total_items": [250.0],
-
         "total_revenue": [1000.0],
-
         "average_transaction_value": [200.0],
-
         "unique_products": [20.0],
-
         "return_count": [0.0],
-
         "lifetime_days": [180.0]
 
     })
@@ -126,19 +117,12 @@ def test_prediction_value():
     test_data = pd.DataFrame({
 
         "recency_days": [30.0],
-
         "frequency": [5.0],
-
         "total_items": [250.0],
-
         "total_revenue": [1000.0],
-
         "average_transaction_value": [200.0],
-
         "unique_products": [20.0],
-
         "return_count": [0.0],
-
         "lifetime_days": [180.0]
 
     })
@@ -159,19 +143,12 @@ def test_prediction_probability():
     test_data = pd.DataFrame({
 
         "recency_days": [30.0],
-
         "frequency": [5.0],
-
         "total_items": [250.0],
-
         "total_revenue": [1000.0],
-
         "average_transaction_value": [200.0],
-
         "unique_products": [20.0],
-
         "return_count": [0.0],
-
         "lifetime_days": [180.0]
 
     })
