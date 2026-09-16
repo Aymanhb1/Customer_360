@@ -36,6 +36,7 @@ st.markdown(
 
 MODEL_PATH = Path("repeat_purchase_model_v2.pkl")
 METADATA_PATH = Path("model_metadata.json")
+SCHEMA_PATH = Path("feature_schema.json")
 LOG_PATH = Path("prediction_logs.csv")
 
 
