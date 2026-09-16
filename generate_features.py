@@ -38,25 +38,29 @@ def generate_customer_features():
 
         query = """
         SELECT
-            customer_id,
             order_id,
-            product_id,
+            customer_id,
+            stock_code,
+            invoice_date,
             quantity,
-            total_amount,
-            order_date
+            line_total,
+            is_return
         FROM orders
         """
 
-        orders = pd.read_sql_query(query, conn)
+        orders = pd.read_sql_query(
+            query,
+            conn
+        )
 
     finally:
 
         conn.close()
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # CHECK DATA
-    # --------------------------------------------------------
+    # ========================================================
 
     if orders.empty:
 
@@ -65,78 +69,100 @@ def generate_customer_features():
         return
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # CONVERT DATE
-    # --------------------------------------------------------
+    # ========================================================
 
-    orders["order_date"] = pd.to_datetime(
-        orders["order_date"],
+    orders["invoice_date"] = pd.to_datetime(
+        orders["invoice_date"],
         errors="coerce"
     )
 
+
+    # Remove rows with invalid customer/date
     orders = orders.dropna(
-        subset=["customer_id", "order_date"]
+        subset=[
+            "customer_id",
+            "invoice_date"
+        ]
     )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # SORT ORDERS
-    # --------------------------------------------------------
+    # ========================================================
 
     orders = orders.sort_values(
-        ["customer_id", "order_date"]
+        [
+            "customer_id",
+            "invoice_date"
+        ]
     )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # REFERENCE DATE
-    # --------------------------------------------------------
+    # ========================================================
 
-    reference_date = orders["order_date"].max()
+    reference_date = orders["invoice_date"].max()
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # CUSTOMER-LEVEL FEATURES
-    # --------------------------------------------------------
+    # ========================================================
 
     features = (
         orders
         .groupby("customer_id")
         .agg(
+
+            # Days since customer's latest purchase
             recency_days=(
-                "order_date",
+                "invoice_date",
                 lambda x: (
                     reference_date - x.max()
                 ).days
             ),
 
+            # Number of unique invoices
             frequency=(
-                "order_id",
+                "invoice_date",
                 "nunique"
             ),
 
+            # Total number of items purchased
             total_items=(
                 "quantity",
                 "sum"
             ),
 
+            # Total revenue
             total_revenue=(
-                "total_amount",
+                "line_total",
                 "sum"
             ),
 
+            # Number of different products
             unique_products=(
-                "product_id",
+                "stock_code",
                 "nunique"
             ),
 
+            # Number of returned lines
+            return_count=(
+                "is_return",
+                "sum"
+            ),
+
+            # First purchase date
             first_purchase=(
-                "order_date",
+                "invoice_date",
                 "min"
             ),
 
+            # Last purchase date
             last_purchase=(
-                "order_date",
+                "invoice_date",
                 "max"
             )
         )
@@ -144,9 +170,9 @@ def generate_customer_features():
     )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # AVERAGE TRANSACTION VALUE
-    # --------------------------------------------------------
+    # ========================================================
 
     features["average_transaction_value"] = (
         features["total_revenue"]
@@ -154,9 +180,9 @@ def generate_customer_features():
     )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # LIFETIME DAYS
-    # --------------------------------------------------------
+    # ========================================================
 
     features["lifetime_days"] = (
         features["last_purchase"]
@@ -164,40 +190,48 @@ def generate_customer_features():
     ).dt.days
 
 
-    # --------------------------------------------------------
-    # RETURN COUNT
-    # --------------------------------------------------------
-    #
-    # If the orders table does not contain a return indicator,
-    # we use 0 as the default value.
-    #
-
-    features["return_count"] = 0
-
-
-    # --------------------------------------------------------
-    # HANDLE POSSIBLE DIVISION ISSUES
-    # --------------------------------------------------------
+    # ========================================================
+    # HANDLE MISSING / INVALID VALUES
+    # ========================================================
 
     features["average_transaction_value"] = (
         features["average_transaction_value"]
         .fillna(0)
     )
 
+    features["lifetime_days"] = (
+        features["lifetime_days"]
+        .fillna(0)
+    )
 
-    # --------------------------------------------------------
+    features["return_count"] = (
+        features["return_count"]
+        .fillna(0)
+    )
+
+
+    # ========================================================
     # SELECT MODEL FEATURES
-    # --------------------------------------------------------
+    # ========================================================
 
     model_features = [
+
         "customer_id",
+
         "recency_days",
+
         "frequency",
+
         "total_items",
+
         "total_revenue",
+
         "average_transaction_value",
+
         "unique_products",
+
         "return_count",
+
         "lifetime_days"
     ]
 
@@ -205,9 +239,9 @@ def generate_customer_features():
     features = features[model_features]
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # SAVE FEATURES
-    # --------------------------------------------------------
+    # ========================================================
 
     features.to_csv(
         OUTPUT_PATH,
@@ -215,13 +249,15 @@ def generate_customer_features():
     )
 
 
-    # --------------------------------------------------------
-    # SUMMARY
-    # --------------------------------------------------------
+    # ========================================================
+    # DISPLAY SUMMARY
+    # ========================================================
 
     print("=" * 60)
 
-    print("Customer feature generation completed.")
+    print(
+        "Customer feature generation completed successfully."
+    )
 
     print("=" * 60)
 
@@ -230,7 +266,7 @@ def generate_customer_features():
     )
 
     print(
-        f"Features generated: {len(model_features) - 1}"
+        f"Model features generated: {len(model_features) - 1}"
     )
 
     print(
@@ -242,6 +278,12 @@ def generate_customer_features():
     for column in features.columns:
 
         print(f"- {column}")
+
+    print("\nFirst 5 customers:")
+
+    print(
+        features.head().to_string(index=False)
+    )
 
 
 # ============================================================
