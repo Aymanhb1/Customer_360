@@ -27,7 +27,9 @@ st.set_page_config(
 MODEL_PATH = Path("repeat_purchase_model_v2.pkl")
 METADATA_PATH = Path("model_metadata.json")
 SCHEMA_PATH = Path("feature_schema.json")
+
 DATABASE_PATH = Path("retail_customer360.db")
+SQL_SCHEMA_PATH = Path("schema.sql")
 
 
 # ============================================================
@@ -36,6 +38,7 @@ DATABASE_PATH = Path("retail_customer360.db")
 
 @st.cache_data
 def load_metadata():
+
     if not METADATA_PATH.exists():
         raise FileNotFoundError(
             f"Metadata file not found: {METADATA_PATH}"
@@ -51,6 +54,7 @@ def load_metadata():
 
 @st.cache_data
 def load_feature_schema():
+
     if not SCHEMA_PATH.exists():
         raise FileNotFoundError(
             f"Feature schema file not found: {SCHEMA_PATH}"
@@ -66,6 +70,7 @@ def load_feature_schema():
 
 @st.cache_resource
 def load_model():
+
     if not MODEL_PATH.exists():
         raise FileNotFoundError(
             f"Model file not found: {MODEL_PATH}"
@@ -73,10 +78,41 @@ def load_model():
 
     model = joblib.load(MODEL_PATH)
 
-    # Make sure the model is actually fitted
     check_is_fitted(model)
 
     return model
+
+
+# ============================================================
+# DATABASE INITIALIZATION
+# ============================================================
+
+def initialize_database():
+
+    # If database already exists, use it
+    if DATABASE_PATH.exists():
+        return
+
+    # schema.sql must exist
+    if not SQL_SCHEMA_PATH.exists():
+        raise FileNotFoundError(
+            f"Database schema file not found: {SQL_SCHEMA_PATH}"
+        )
+
+    # Create database
+    conn = sqlite3.connect(DATABASE_PATH)
+
+    try:
+
+        with open(SQL_SCHEMA_PATH, "r", encoding="utf-8") as f:
+            schema_sql = f.read()
+
+        conn.executescript(schema_sql)
+        conn.commit()
+
+    finally:
+
+        conn.close()
 
 
 # ============================================================
@@ -84,16 +120,14 @@ def load_model():
 # ============================================================
 
 def get_database_connection():
-    if not DATABASE_PATH.exists():
-        raise FileNotFoundError(
-            f"Database file not found: {DATABASE_PATH}"
-        )
+
+    initialize_database()
 
     return sqlite3.connect(DATABASE_PATH)
 
 
 # ============================================================
-# SAVE PREDICTION TO DATABASE
+# SAVE PREDICTION LOG
 # ============================================================
 
 def save_prediction_log(log_data):
@@ -101,6 +135,7 @@ def save_prediction_log(log_data):
     conn = get_database_connection()
 
     try:
+
         query = """
         INSERT INTO prediction_logs (
             customer_id,
@@ -144,6 +179,7 @@ def save_prediction_log(log_data):
         conn.commit()
 
     finally:
+
         conn.close()
 
 
@@ -199,12 +235,13 @@ MODEL_NAME = metadata.get(
 # ============================================================
 
 st.title("🛍️ Customer 360")
+
 st.subheader("Repeat Purchase Prediction")
 
 st.write(
     """
-    Enter customer behavioral features below to predict whether
-    the customer is likely to make a repeat purchase.
+    Enter customer behavioral features below to predict
+    whether the customer is likely to make a repeat purchase.
     """
 )
 
@@ -218,6 +255,7 @@ with st.sidebar:
     st.header("⚙️ Model Information")
 
     st.write(f"**Model:** {MODEL_NAME}")
+
     st.write(f"**Version:** {MODEL_VERSION}")
 
     st.write(
@@ -231,7 +269,7 @@ with st.sidebar:
 
 
 # ============================================================
-# INPUT SECTION
+# CUSTOMER INPUT
 # ============================================================
 
 st.header("👤 Customer Information")
@@ -281,7 +319,7 @@ with col2:
         min_value=0.0,
         value=100.0,
         step=10.0,
-        help="Average value of a customer's transactions."
+        help="Average value of the customer's transactions."
     )
 
     unique_products = st.number_input(
@@ -330,21 +368,23 @@ input_data = pd.DataFrame(
 
 
 # ============================================================
-# FEATURE SCHEMA VALIDATION
+# FEATURE VALIDATION
 # ============================================================
 
 input_features = set(input_data.columns)
+
 expected_features = set(EXPECTED_FEATURES)
 
 missing_features = expected_features - input_features
+
 unexpected_features = input_features - expected_features
 
 
 if missing_features:
 
     st.error(
-        f"❌ Missing required features: "
-        f"{', '.join(sorted(missing_features))}"
+        "❌ Missing required features: "
+        + ", ".join(sorted(missing_features))
     )
 
     st.stop()
@@ -353,14 +393,14 @@ if missing_features:
 if unexpected_features:
 
     st.error(
-        f"❌ Unexpected features found: "
-        f"{', '.join(sorted(unexpected_features))}"
+        "❌ Unexpected features found: "
+        + ", ".join(sorted(unexpected_features))
     )
 
     st.stop()
 
 
-# Reorder columns exactly as expected by the model
+# Ensure exact feature order
 input_data = input_data[EXPECTED_FEATURES]
 
 
@@ -399,7 +439,7 @@ if (input_data < 0).any().any():
 
 
 # ============================================================
-# SHOW INPUT DATA
+# VIEW INPUT
 # ============================================================
 
 with st.expander("🔍 View Model Input"):
@@ -430,15 +470,15 @@ if st.button(
 
         prediction = model.predict(input_data)[0]
 
+
         # ----------------------------------------------------
-        # PREDICTION PROBABILITY
+        # PROBABILITY
         # ----------------------------------------------------
 
         if hasattr(model, "predict_proba"):
 
             probabilities = model.predict_proba(input_data)[0]
 
-            # Probability of class 1
             if hasattr(model, "classes_"):
 
                 classes = list(model.classes_)
@@ -463,11 +503,11 @@ if st.button(
 
         else:
 
-            repeat_purchase_probability = None
+            repeat_purchase_probability = 0.0
 
 
         # ----------------------------------------------------
-        # DISPLAY PREDICTION
+        # DISPLAY RESULT
         # ----------------------------------------------------
 
         st.subheader("📊 Prediction Result")
@@ -492,18 +532,10 @@ if st.button(
 
         with result_col2:
 
-            if repeat_purchase_probability is not None:
-
-                st.metric(
-                    "Repeat Purchase Probability",
-                    f"{repeat_purchase_probability:.2%}"
-                )
-
-            else:
-
-                st.info(
-                    "Probability is not available for this model."
-                )
+            st.metric(
+                "Repeat Purchase Probability",
+                f"{repeat_purchase_probability:.2%}"
+            )
 
 
         # ----------------------------------------------------
@@ -518,8 +550,8 @@ if st.button(
                 """
                 This customer shows characteristics associated with
                 repeat purchasing. Consider retention strategies such
-                as personalized offers, product recommendations, and
-                loyalty rewards.
+                as personalized offers, product recommendations,
+                and loyalty rewards.
                 """
             )
 
@@ -535,10 +567,8 @@ if st.button(
 
 
         # ----------------------------------------------------
-        # PREPARE LOG DATA
+        # LOG DATA
         # ----------------------------------------------------
-
-        timestamp = datetime.now().isoformat()
 
         log_data = {
 
@@ -562,22 +592,18 @@ if st.button(
             "prediction": int(prediction),
 
             "repeat_purchase_probability":
-                (
-                    repeat_purchase_probability
-                    if repeat_purchase_probability is not None
-                    else 0.0
-                ),
+                repeat_purchase_probability,
 
             "model_name": MODEL_NAME,
 
             "model_version": MODEL_VERSION,
 
-            "timestamp": timestamp
+            "timestamp": datetime.now().isoformat()
         }
 
 
         # ----------------------------------------------------
-        # SAVE PREDICTION TO SQLITE
+        # SAVE TO DATABASE
         # ----------------------------------------------------
 
         save_prediction_log(log_data)
@@ -610,10 +636,6 @@ try:
     conn = get_database_connection()
 
 
-    # --------------------------------------------------------
-    # LAST 20 PREDICTIONS
-    # --------------------------------------------------------
-
     logs = pd.read_sql_query(
         """
         SELECT *
@@ -624,10 +646,6 @@ try:
         conn
     )
 
-
-    # --------------------------------------------------------
-    # TOTAL PREDICTIONS
-    # --------------------------------------------------------
 
     total_predictions = pd.read_sql_query(
         """
