@@ -1,10 +1,11 @@
-import streamlit as st
-import pandas as pd
-import joblib
 import json
-
+import sqlite3
 from pathlib import Path
 from datetime import datetime
+
+import joblib
+import pandas as pd
+import streamlit as st
 from sklearn.utils.validation import check_is_fitted
 
 
@@ -13,14 +14,9 @@ from sklearn.utils.validation import check_is_fitted
 # ============================================================
 
 st.set_page_config(
-    page_title="Retail Customer 360",
+    page_title="Customer 360",
     page_icon="🛍️",
     layout="wide"
-)
-
-st.title("🛍️ Customer Insights & Repeat Purchase Predictor")
-st.markdown(
-    "Interactive Machine Learning dashboard for the Online Retail dataset."
 )
 
 
@@ -31,33 +27,22 @@ st.markdown(
 MODEL_PATH = Path("repeat_purchase_model_v2.pkl")
 METADATA_PATH = Path("model_metadata.json")
 SCHEMA_PATH = Path("feature_schema.json")
-LOG_PATH = Path("prediction_logs.csv")
+DATABASE_PATH = Path("retail_customer360.db")
 
 
 # ============================================================
-# LOAD MODEL METADATA
+# LOAD METADATA
 # ============================================================
 
 @st.cache_data
 def load_metadata():
     if not METADATA_PATH.exists():
         raise FileNotFoundError(
-            f"Model metadata file not found: {METADATA_PATH}"
+            f"Metadata file not found: {METADATA_PATH}"
         )
 
-    with open(METADATA_PATH, "r") as file:
-        metadata = json.load(file)
-
-    return metadata
-
-
-try:
-    metadata = load_metadata()
-
-except Exception as e:
-    st.error("❌ Failed to load model metadata.")
-    st.exception(e)
-    st.stop()
+    with open(METADATA_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 # ============================================================
@@ -71,19 +56,8 @@ def load_feature_schema():
             f"Feature schema file not found: {SCHEMA_PATH}"
         )
 
-    with open(SCHEMA_PATH, "r") as file:
-        schema = json.load(file)
-
-    return schema
-
-
-try:
-    feature_schema = load_feature_schema()
-
-except Exception as e:
-    st.error("❌ Failed to load feature schema.")
-    st.exception(e)
-    st.stop()
+    with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 # ============================================================
@@ -99,16 +73,93 @@ def load_model():
 
     model = joblib.load(MODEL_PATH)
 
+    # Make sure the model is actually fitted
     check_is_fitted(model)
 
     return model
 
 
+# ============================================================
+# DATABASE CONNECTION
+# ============================================================
+
+def get_database_connection():
+    if not DATABASE_PATH.exists():
+        raise FileNotFoundError(
+            f"Database file not found: {DATABASE_PATH}"
+        )
+
+    return sqlite3.connect(DATABASE_PATH)
+
+
+# ============================================================
+# SAVE PREDICTION TO DATABASE
+# ============================================================
+
+def save_prediction_log(log_data):
+
+    conn = get_database_connection()
+
+    try:
+        query = """
+        INSERT INTO prediction_logs (
+            customer_id,
+            recency_days,
+            frequency,
+            total_items,
+            total_revenue,
+            average_transaction_value,
+            unique_products,
+            return_count,
+            lifetime_days,
+            prediction,
+            repeat_purchase_probability,
+            model_name,
+            model_version,
+            timestamp
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+
+        conn.execute(
+            query,
+            (
+                None,
+                float(log_data["recency_days"]),
+                float(log_data["frequency"]),
+                float(log_data["total_items"]),
+                float(log_data["total_revenue"]),
+                float(log_data["average_transaction_value"]),
+                float(log_data["unique_products"]),
+                float(log_data["return_count"]),
+                float(log_data["lifetime_days"]),
+                int(log_data["prediction"]),
+                float(log_data["repeat_purchase_probability"]),
+                log_data["model_name"],
+                log_data["model_version"],
+                log_data["timestamp"]
+            )
+        )
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+
+# ============================================================
+# LOAD MODEL + CONFIGURATION
+# ============================================================
+
 try:
+
     model = load_model()
+    metadata = load_metadata()
+    feature_schema = load_feature_schema()
 
 except Exception as e:
-    st.error("❌ Failed to load the trained model.")
+
+    st.error("❌ Failed to load application files.")
     st.exception(e)
     st.stop()
 
@@ -119,497 +170,420 @@ except Exception as e:
 
 EXPECTED_FEATURES = feature_schema.get("features", [])
 
-
 if not EXPECTED_FEATURES:
-    st.error("❌ No features found in feature_schema.json.")
+
+    st.error(
+        "❌ No features were found in feature_schema.json."
+    )
+
     st.stop()
-
-
-# ============================================================
-# SIDEBAR - CUSTOMER INPUTS
-# ============================================================
-
-st.sidebar.header("Customer Parameter Inputs")
-
-st.sidebar.markdown(
-    "Enter the customer's historical purchasing behavior."
-)
-
-
-recency_days = st.sidebar.number_input(
-    "Recency Days",
-    min_value=0.0,
-    value=30.0,
-    step=1.0,
-    help="Number of days since the customer's last purchase."
-)
-
-
-frequency = st.sidebar.number_input(
-    "Total Orders",
-    min_value=1.0,
-    value=5.0,
-    step=1.0,
-    help="Number of orders made by the customer."
-)
-
-
-total_items = st.sidebar.number_input(
-    "Total Items Purchased",
-    min_value=1.0,
-    value=250.0,
-    step=1.0,
-    help="Total number of items purchased."
-)
-
-
-total_revenue = st.sidebar.number_input(
-    "Total Revenue",
-    min_value=0.0,
-    value=1000.0,
-    step=10.0,
-    help="Total historical revenue generated by the customer."
-)
-
-
-average_transaction_value = st.sidebar.number_input(
-    "Average Transaction Value",
-    min_value=0.0,
-    value=200.0,
-    step=10.0,
-    help="Average value of the customer's transactions."
-)
-
-
-unique_products = st.sidebar.number_input(
-    "Unique Products",
-    min_value=1.0,
-    value=20.0,
-    step=1.0,
-    help="Number of different products purchased."
-)
-
-
-return_count = st.sidebar.number_input(
-    "Return Count",
-    min_value=0.0,
-    value=0.0,
-    step=1.0,
-    help="Number of returns."
-)
-
-
-lifetime_days = st.sidebar.slider(
-    "Customer Lifetime (Days)",
-    min_value=0,
-    max_value=730,
-    value=180,
-    help="Number of days between first and last purchase."
-)
 
 
 # ============================================================
 # MODEL INFORMATION
 # ============================================================
 
-with st.sidebar.expander("🤖 Model Information"):
+MODEL_VERSION = metadata.get(
+    "model_version",
+    feature_schema.get("model_version", "unknown")
+)
 
-    st.write(
-        f"**Model:** "
-        f"{metadata.get('model_name', 'N/A')}"
-    )
-
-    st.write(
-        f"**Version:** "
-        f"{metadata.get('model_version', 'N/A')}"
-    )
-
-    st.write(
-        f"**Algorithm:** "
-        f"{metadata.get('algorithm', 'N/A')}"
-    )
-
-    st.write(
-        f"**Framework:** "
-        f"{metadata.get('framework', 'N/A')}"
-    )
-
-    st.write(
-        f"**Target:** "
-        f"{metadata.get('target', 'N/A')}"
-    )
-
-    st.write(
-        f"**Schema Version:** "
-        f"{feature_schema.get('model_version', 'N/A')}"
-    )
-
-    st.write(
-        f"**Expected Features:** "
-        f"{len(EXPECTED_FEATURES)}"
-    )
-
-
-# ============================================================
-# PREDICTION SECTION
-# ============================================================
-
-st.subheader("Model Prediction")
-
-st.write(
-    "Predict whether this customer is likely to make a repeat purchase."
+MODEL_NAME = metadata.get(
+    "model_name",
+    "Repeat Purchase Prediction Model"
 )
 
 
-if st.button(
-    "🔮 Predict Repeat Purchase",
-    type="primary"
+# ============================================================
+# HEADER
+# ============================================================
+
+st.title("🛍️ Customer 360")
+st.subheader("Repeat Purchase Prediction")
+
+st.write(
+    """
+    Enter customer behavioral features below to predict whether
+    the customer is likely to make a repeat purchase.
+    """
+)
+
+
+# ============================================================
+# SIDEBAR
+# ============================================================
+
+with st.sidebar:
+
+    st.header("⚙️ Model Information")
+
+    st.write(f"**Model:** {MODEL_NAME}")
+    st.write(f"**Version:** {MODEL_VERSION}")
+
+    st.write(
+        f"**Expected Features:** {len(EXPECTED_FEATURES)}"
+    )
+
+    with st.expander("View Expected Features"):
+
+        for feature in EXPECTED_FEATURES:
+            st.write(f"- `{feature}`")
+
+
+# ============================================================
+# INPUT SECTION
+# ============================================================
+
+st.header("👤 Customer Information")
+
+col1, col2 = st.columns(2)
+
+
+with col1:
+
+    recency_days = st.number_input(
+        "Recency Days",
+        min_value=0.0,
+        value=30.0,
+        step=1.0,
+        help="Number of days since the customer's last purchase."
+    )
+
+    frequency = st.number_input(
+        "Frequency",
+        min_value=0.0,
+        value=5.0,
+        step=1.0,
+        help="Number of purchases made by the customer."
+    )
+
+    total_items = st.number_input(
+        "Total Items",
+        min_value=0.0,
+        value=10.0,
+        step=1.0,
+        help="Total number of items purchased."
+    )
+
+    total_revenue = st.number_input(
+        "Total Revenue",
+        min_value=0.0,
+        value=500.0,
+        step=10.0,
+        help="Total revenue generated by the customer."
+    )
+
+
+with col2:
+
+    average_transaction_value = st.number_input(
+        "Average Transaction Value",
+        min_value=0.0,
+        value=100.0,
+        step=10.0,
+        help="Average value of a customer's transactions."
+    )
+
+    unique_products = st.number_input(
+        "Unique Products",
+        min_value=0.0,
+        value=5.0,
+        step=1.0,
+        help="Number of different products purchased."
+    )
+
+    return_count = st.number_input(
+        "Return Count",
+        min_value=0.0,
+        value=0.0,
+        step=1.0,
+        help="Number of returned purchases/items."
+    )
+
+    lifetime_days = st.number_input(
+        "Lifetime Days",
+        min_value=0.0,
+        value=365.0,
+        step=1.0,
+        help="Number of days since the customer's first purchase."
+    )
+
+
+# ============================================================
+# CREATE INPUT DATA
+# ============================================================
+
+input_data = pd.DataFrame(
+    [
+        {
+            "recency_days": recency_days,
+            "frequency": frequency,
+            "total_items": total_items,
+            "total_revenue": total_revenue,
+            "average_transaction_value": average_transaction_value,
+            "unique_products": unique_products,
+            "return_count": return_count,
+            "lifetime_days": lifetime_days
+        }
+    ]
+)
+
+
+# ============================================================
+# FEATURE SCHEMA VALIDATION
+# ============================================================
+
+input_features = set(input_data.columns)
+expected_features = set(EXPECTED_FEATURES)
+
+missing_features = expected_features - input_features
+unexpected_features = input_features - expected_features
+
+
+if missing_features:
+
+    st.error(
+        f"❌ Missing required features: "
+        f"{', '.join(sorted(missing_features))}"
+    )
+
+    st.stop()
+
+
+if unexpected_features:
+
+    st.error(
+        f"❌ Unexpected features found: "
+        f"{', '.join(sorted(unexpected_features))}"
+    )
+
+    st.stop()
+
+
+# Reorder columns exactly as expected by the model
+input_data = input_data[EXPECTED_FEATURES]
+
+
+# ============================================================
+# DATA VALIDATION
+# ============================================================
+
+if input_data.isnull().any().any():
+
+    st.error(
+        "❌ Input contains missing values."
+    )
+
+    st.stop()
+
+
+if not all(
+    pd.api.types.is_numeric_dtype(input_data[column])
+    for column in input_data.columns
 ):
 
-    # --------------------------------------------------------
-    # Create input dataframe
-    # --------------------------------------------------------
+    st.error(
+        "❌ All model features must be numeric."
+    )
 
-    input_data = pd.DataFrame({
-        "recency_days": [recency_days],
-        "frequency": [frequency],
-        "total_items": [total_items],
-        "total_revenue": [total_revenue],
-        "average_transaction_value": [average_transaction_value],
-        "unique_products": [unique_products],
-        "return_count": [return_count],
-        "lifetime_days": [lifetime_days]
-    })
+    st.stop()
 
 
-    # --------------------------------------------------------
-    # Validate feature schema
-    # --------------------------------------------------------
+if (input_data < 0).any().any():
 
-    actual_features = list(input_data.columns)
+    st.error(
+        "❌ Feature values cannot be negative."
+    )
 
-
-    missing_features = [
-        feature
-        for feature in EXPECTED_FEATURES
-        if feature not in actual_features
-    ]
+    st.stop()
 
 
-    unexpected_features = [
-        feature
-        for feature in actual_features
-        if feature not in EXPECTED_FEATURES
-    ]
+# ============================================================
+# SHOW INPUT DATA
+# ============================================================
+
+with st.expander("🔍 View Model Input"):
+
+    st.dataframe(
+        input_data,
+        use_container_width=True
+    )
 
 
-    if missing_features or unexpected_features:
+# ============================================================
+# PREDICTION
+# ============================================================
 
-        st.error(
-            "❌ Input schema validation failed."
-        )
+st.divider()
 
-        if missing_features:
-            st.error(
-                f"Missing features: {missing_features}"
-            )
-
-        if unexpected_features:
-            st.error(
-                f"Unexpected features: {unexpected_features}"
-            )
-
-        st.stop()
-
-
-    # --------------------------------------------------------
-    # Reorder features according to saved schema
-    # --------------------------------------------------------
-
-    input_data = input_data[EXPECTED_FEATURES]
-
-
-    # --------------------------------------------------------
-    # Check missing values
-    # --------------------------------------------------------
-
-    if input_data.isnull().any().any():
-
-        st.error(
-            "❌ Input contains missing values."
-        )
-
-        st.stop()
-
-
-    # --------------------------------------------------------
-    # Check data types
-    # --------------------------------------------------------
-
-    if not all(
-        pd.api.types.is_numeric_dtype(input_data[column])
-        for column in input_data.columns
-    ):
-
-        st.error(
-            "❌ All model features must be numeric."
-        )
-
-        st.stop()
-
-
-    # --------------------------------------------------------
-    # Validate input values
-    # --------------------------------------------------------
-
-    invalid_values = False
-
-
-    if recency_days < 0:
-        invalid_values = True
-
-    if frequency < 1:
-        invalid_values = True
-
-    if total_items < 1:
-        invalid_values = True
-
-    if total_revenue < 0:
-        invalid_values = True
-
-    if average_transaction_value < 0:
-        invalid_values = True
-
-    if unique_products < 1:
-        invalid_values = True
-
-    if return_count < 0:
-        invalid_values = True
-
-    if lifetime_days < 0:
-        invalid_values = True
-
-
-    if invalid_values:
-
-        st.error(
-            "❌ One or more customer values are invalid."
-        )
-
-        st.info(
-            "Please check the values entered in the sidebar."
-        )
-
-        st.stop()
-
-
-    # ========================================================
-    # MAKE PREDICTION
-    # ========================================================
+if st.button(
+    "🔮 Predict Repeat Purchase",
+    type="primary",
+    use_container_width=True
+):
 
     try:
 
+        # ----------------------------------------------------
+        # MODEL PREDICTION
+        # ----------------------------------------------------
+
         prediction = model.predict(input_data)[0]
 
-
         # ----------------------------------------------------
-        # Prediction probability
+        # PREDICTION PROBABILITY
         # ----------------------------------------------------
-
-        probability = None
 
         if hasattr(model, "predict_proba"):
 
-            probability = model.predict_proba(
-                input_data
-            )[0][1]
+            probabilities = model.predict_proba(input_data)[0]
 
+            # Probability of class 1
+            if hasattr(model, "classes_"):
 
-        st.divider()
+                classes = list(model.classes_)
 
+                if 1 in classes:
 
-        # ----------------------------------------------------
-        # Prediction result
-        # ----------------------------------------------------
+                    repeat_purchase_probability = float(
+                        probabilities[classes.index(1)]
+                    )
 
-        if prediction == 1:
+                else:
 
-            st.success(
-                "✅ **Likely to make a repeat purchase**"
-            )
+                    repeat_purchase_probability = float(
+                        max(probabilities)
+                    )
+
+            else:
+
+                repeat_purchase_probability = float(
+                    max(probabilities)
+                )
 
         else:
 
-            st.warning(
-                "⚠️ **Unlikely to make a repeat purchase**"
-            )
+            repeat_purchase_probability = None
 
 
         # ----------------------------------------------------
-        # Prediction metrics
+        # DISPLAY PREDICTION
         # ----------------------------------------------------
 
-        if probability is not None:
+        st.subheader("📊 Prediction Result")
 
-            col1, col2 = st.columns(2)
-
-
-            with col1:
-
-                st.metric(
-                    "Repeat Purchase Probability",
-                    f"{probability:.1%}"
-                )
+        result_col1, result_col2 = st.columns(2)
 
 
-            with col2:
+        with result_col1:
 
-                st.metric(
-                    "Prediction",
-                    "Repeat Purchase"
-                    if prediction == 1
-                    else "No Repeat Purchase"
-                )
-
-
-            st.progress(
-                float(probability)
-            )
-
-
-        # ====================================================
-        # BUSINESS RECOMMENDATION
-        # ====================================================
-
-        st.subheader("💡 Business Recommendation")
-
-
-        if probability is not None:
-
-            if probability >= 0.75:
+            if int(prediction) == 1:
 
                 st.success(
-                    "High repeat-purchase potential. "
-                    "Consider loyalty rewards, cross-selling, "
-                    "or personalized recommendations."
-                )
-
-            elif probability >= 0.50:
-
-                st.info(
-                    "Moderate repeat-purchase potential. "
-                    "Consider personalized offers or "
-                    "targeted marketing campaigns."
+                    "✅ Customer is predicted to make a repeat purchase."
                 )
 
             else:
 
                 st.warning(
-                    "Low repeat-purchase potential. "
-                    "Consider a re-engagement campaign, "
-                    "discount, or personalized promotion."
+                    "⚠️ Customer is predicted NOT to make a repeat purchase."
                 )
 
 
-        # ====================================================
-        # CUSTOMER INFORMATION
-        # ====================================================
+        with result_col2:
 
-        st.subheader("Customer Information")
+            if repeat_purchase_probability is not None:
 
+                st.metric(
+                    "Repeat Purchase Probability",
+                    f"{repeat_purchase_probability:.2%}"
+                )
 
-        display_data = input_data.T.rename(
-            columns={0: "Value"}
-        )
+            else:
 
-
-        st.dataframe(
-            display_data,
-            use_container_width=True
-        )
-
-
-        # ====================================================
-        # PREDICTION LOGGING
-        # ====================================================
-
-        log_data = input_data.copy()
-
-
-        log_data["prediction"] = int(prediction)
-
-
-        if probability is not None:
-
-            log_data[
-                "repeat_purchase_probability"
-            ] = float(probability)
-
-        else:
-
-            log_data[
-                "repeat_purchase_probability"
-            ] = None
-
-
-        log_data["model_version"] = metadata.get(
-            "model_version",
-            "unknown"
-        )
-
-
-        log_data["model_name"] = metadata.get(
-            "model_name",
-            "unknown"
-        )
-
-
-        log_data["schema_version"] = feature_schema.get(
-            "model_version",
-            "unknown"
-        )
-
-
-        log_data["timestamp"] = datetime.now().isoformat()
+                st.info(
+                    "Probability is not available for this model."
+                )
 
 
         # ----------------------------------------------------
-        # Save log
+        # BUSINESS RECOMMENDATION
         # ----------------------------------------------------
 
-        if LOG_PATH.exists():
+        st.subheader("💡 Business Recommendation")
 
-            existing_logs = pd.read_csv(
-                LOG_PATH
-            )
+        if int(prediction) == 1:
 
-            updated_logs = pd.concat(
-                [
-                    existing_logs,
-                    log_data
-                ],
-                ignore_index=True
+            st.write(
+                """
+                This customer shows characteristics associated with
+                repeat purchasing. Consider retention strategies such
+                as personalized offers, product recommendations, and
+                loyalty rewards.
+                """
             )
 
         else:
 
-            updated_logs = log_data
+            st.write(
+                """
+                This customer may require additional engagement.
+                Consider targeted promotions, personalized
+                recommendations, and reactivation campaigns.
+                """
+            )
 
 
-        updated_logs.to_csv(
-            LOG_PATH,
-            index=False
-        )
+        # ----------------------------------------------------
+        # PREPARE LOG DATA
+        # ----------------------------------------------------
 
+        timestamp = datetime.now().isoformat()
+
+        log_data = {
+
+            "recency_days": recency_days,
+
+            "frequency": frequency,
+
+            "total_items": total_items,
+
+            "total_revenue": total_revenue,
+
+            "average_transaction_value":
+                average_transaction_value,
+
+            "unique_products": unique_products,
+
+            "return_count": return_count,
+
+            "lifetime_days": lifetime_days,
+
+            "prediction": int(prediction),
+
+            "repeat_purchase_probability":
+                (
+                    repeat_purchase_probability
+                    if repeat_purchase_probability is not None
+                    else 0.0
+                ),
+
+            "model_name": MODEL_NAME,
+
+            "model_version": MODEL_VERSION,
+
+            "timestamp": timestamp
+        }
+
+
+        # ----------------------------------------------------
+        # SAVE PREDICTION TO SQLITE
+        # ----------------------------------------------------
+
+        save_prediction_log(log_data)
 
         st.success(
-            "✅ Prediction successfully logged."
-        )
-
-
-        st.caption(
-            f"Prediction generated by model "
-            f"**{metadata.get('model_version', 'N/A')}**"
+            "✅ Prediction successfully logged to database."
         )
 
 
@@ -631,27 +605,77 @@ st.divider()
 st.subheader("📊 Prediction History")
 
 
-if LOG_PATH.exists():
+try:
 
-    logs = pd.read_csv(
-        LOG_PATH
+    conn = get_database_connection()
+
+
+    # --------------------------------------------------------
+    # LAST 20 PREDICTIONS
+    # --------------------------------------------------------
+
+    logs = pd.read_sql_query(
+        """
+        SELECT *
+        FROM prediction_logs
+        ORDER BY prediction_id DESC
+        LIMIT 20
+        """,
+        conn
     )
+
+
+    # --------------------------------------------------------
+    # TOTAL PREDICTIONS
+    # --------------------------------------------------------
+
+    total_predictions = pd.read_sql_query(
+        """
+        SELECT COUNT(*) AS total
+        FROM prediction_logs
+        """,
+        conn
+    ).iloc[0]["total"]
+
+
+    conn.close()
 
 
     st.write(
-        f"Total predictions logged: **{len(logs)}**"
+        f"Total predictions logged: "
+        f"**{int(total_predictions)}**"
     )
 
 
-    st.dataframe(
-        logs.tail(20),
-        use_container_width=True
+    if not logs.empty:
+
+        st.dataframe(
+            logs,
+            use_container_width=True
+        )
+
+    else:
+
+        st.info(
+            "No predictions have been logged yet."
+        )
+
+
+except Exception as e:
+
+    st.error(
+        "❌ Failed to load prediction history."
     )
 
+    st.exception(e)
 
-else:
 
-    st.info(
-        "No predictions have been logged yet. "
-        "Make a prediction to create the prediction log."
-    )
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.divider()
+
+st.caption(
+    f"Customer 360 | {MODEL_NAME} | Version {MODEL_VERSION}"
+)
